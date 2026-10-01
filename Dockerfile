@@ -33,6 +33,9 @@ RUN cd ./escriptorium/front && \
     rm -rf node_modules && \
     cd .. && rm -rf .git
 
+# Trim application test directories before copying the runtime.
+RUN find ./escriptorium/app -type d -name tests -prune -exec rm -rf '{}' +
+
 # Assemble runtime services with the built Python environment and web assets.
 FROM python:3.12-slim-bookworm
 
@@ -55,7 +58,8 @@ RUN addgroup --system uwsgi && \
 WORKDIR /home/escriptorium
 
 COPY --from=build /usr/local /usr/local
-COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptorium ./escriptorium
+COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptorium/app ./escriptorium/app
+COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptorium/front/dist ./escriptorium/front/dist
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY django-init.sh /django-init.sh
 COPY docker-entrypoint.sh /usr/local/bin/
