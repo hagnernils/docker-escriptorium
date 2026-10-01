@@ -10,7 +10,7 @@ ARG TORCHVISION_VERSION=0.22.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev libxml2-dev libxslt-dev zlib1g-dev \
     libffi-dev libssl-dev git curl \
-    libleptonica-dev libvips default-jdk ant && \
+    libvips default-jdk ant && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get update && apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -51,7 +51,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 libxml2 libxslt1.1 zlib1g libffi8 libssl3 \
     redis postgresql postgresql-contrib \
-    libvips42 default-jre tesseract-ocr \
+    libvips42 default-jre \
     supervisor nginx && \
     rm -rf /var/lib/apt/lists/*
 
