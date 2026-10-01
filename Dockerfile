@@ -1,75 +1,56 @@
-# Start from slim Python image
-FROM python:3.11-slim
+FROM python:3.12-slim-bookworm
 
-ENV DB_NAME=escriptorium \
-    DB_USER=escriptorium \
-    DB_PASSWORD=escriptorium \
-    DB_PORT=5432
+ARG ESCRIPTORIUM_VERSION=26.04.1
+# Select CUDA 12.6 wheels by default; override the index for CPU builds.
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
+ARG TORCH_VERSION=2.7.1
+ARG TORCHVISION_VERSION=0.22.1
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+ENV POSTGRES_DB=escriptorium \
+    POSTGRES_USER=escriptorium \
+    POSTGRES_PASSWORD=escriptorium \
+    SQL_PORT=5432
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev libxml2-dev libxslt-dev zlib1g-dev \
-    libffi-dev libssl-dev git curl wget \
-    redis postgresql postgresql-contrib \
-    libleptonica-dev libvips nano default-jre default-jdk ant \
-    tesseract-ocr supervisor && \
-    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
-    apt-get update && apt-get install -y nodejs \
-    && apt-get clean
+    libffi-dev libssl-dev git curl \
+    libleptonica-dev libvips default-jdk ant \
+    redis postgresql postgresql-contrib tesseract-ocr supervisor nginx && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get update && apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set JAVA_HOME
-#RUN export JAVA_HOME=$(dirname $(dirname $(readlink -f  /usr/bin/java)))
+RUN addgroup --system uwsgi && \
+    adduser --system --no-create-home --ingroup uwsgi uwsgi && \
+    useradd -ms /bin/bash escriptorium
 
-# Add non privileged user to run the app
-RUN addgroup --system uwsgi
-RUN adduser --system --no-create-home --ingroup uwsgi uwsgi
-
-# Create app user and working dir
-RUN useradd -ms /bin/bash escriptorium
 WORKDIR /home/escriptorium
 
-RUN git clone https://gitlab.com/scripta/escriptorium.git && \
-    cd escriptorium && \
-    git checkout v0.13.8b-hotfixes5 && \
-    chown escriptorium:escriptorium ../escriptorium -R 
-    ## && \
-    ## rm -rf .git
+RUN git clone --depth 1 --branch "$ESCRIPTORIUM_VERSION" \
+        https://gitlab.com/scripta/escriptorium.git
 
-# Install Python deps
-RUN pip install --upgrade "pip<24.1" --no-cache-dir && \
+RUN pip install --upgrade pip --no-cache-dir && \
+    pip install --no-cache-dir \
+        "torch==$TORCH_VERSION" "torchvision==$TORCHVISION_VERSION" \
+        --index-url "$TORCH_INDEX_URL" && \
     pip install --no-cache-dir -r ./escriptorium/app/requirements.txt && \
-    pip install kraken flower gunicorn psycopg2 --no-cache-dir
+    pip install --no-cache-dir flower gunicorn
 
-#ADD webpack.common.js /home/escriptorium/escriptorium/front/webpack.common.js
-#RUN sed -i '1 s/^.*$/window.Vue = require("vue");/' /home/escriptorium/escriptorium/front/src/editor/mixins.js 
-RUN cd /home/escriptorium/escriptorium/front && \
-    npm install && npm install webpack && \
-    npm i @vue/compiler-sfc @popperjs/core && \
+RUN cd ./escriptorium/front && \
+    npm ci && \
     npm run production && \
-    npm cache clean --force && \
-    mkdir -p ../app/static/ && \
-    mv ./dist/* ../app/static/ && \
-    mv ../app/escriptorium/static/* ../app/static/ && \
-    chown escriptorium:escriptorium /home/escriptorium/escriptorium/ -R
+    rm -rf node_modules && \
+    cd .. && rm -rf .git
 
-# Add supervisord config
+RUN chown -R escriptorium:escriptorium /home/escriptorium/escriptorium
+
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY django-init.sh /django-init.sh
-
-# Expose Django and Flower ports
-EXPOSE 8000 5555
-
-# Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-RUN apt-get install -y nginx
-
-# /etc/nginx/conf.d/main.conf
-#RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx.conf /etc/nginx/sites-available/default
 
+RUN chmod +x /django-init.sh /usr/local/bin/docker-entrypoint.sh
 
-# Default command
+EXPOSE 80 5555
+
 CMD ["docker-entrypoint.sh"]
-
