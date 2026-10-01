@@ -1,4 +1,5 @@
-FROM python:3.12-slim-bookworm
+# Build Python dependencies and frontend assets in a dedicated stage.
+FROM python:3.12-slim-bookworm AS build
 
 ARG ESCRIPTORIUM_VERSION=26.04.1
 # Select CUDA 12.6 wheels by default; override the index for CPU builds.
@@ -6,23 +7,13 @@ ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
 ARG TORCH_VERSION=2.7.1
 ARG TORCHVISION_VERSION=0.22.1
 
-ENV POSTGRES_DB=escriptorium \
-    POSTGRES_USER=escriptorium \
-    POSTGRES_PASSWORD=escriptorium \
-    SQL_PORT=5432
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev libxml2-dev libxslt-dev zlib1g-dev \
     libffi-dev libssl-dev git curl \
-    libleptonica-dev libvips default-jdk ant \
-    redis postgresql postgresql-contrib tesseract-ocr supervisor nginx && \
+    libleptonica-dev libvips default-jdk ant && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get update && apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
-
-RUN addgroup --system uwsgi && \
-    adduser --system --no-create-home --ingroup uwsgi uwsgi && \
-    useradd -ms /bin/bash escriptorium
 
 WORKDIR /home/escriptorium
 
@@ -42,8 +33,29 @@ RUN cd ./escriptorium/front && \
     rm -rf node_modules && \
     cd .. && rm -rf .git
 
-RUN chown -R escriptorium:escriptorium /home/escriptorium/escriptorium
+# Assemble runtime services with the built Python environment and web assets.
+FROM python:3.12-slim-bookworm
 
+ENV POSTGRES_DB=escriptorium \
+    POSTGRES_USER=escriptorium \
+    POSTGRES_PASSWORD=escriptorium \
+    SQL_PORT=5432
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 libxml2 libxslt1.1 zlib1g libffi8 libssl3 \
+    redis postgresql postgresql-contrib \
+    libvips42 default-jre tesseract-ocr \
+    supervisor nginx && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --system uwsgi && \
+    adduser --system --no-create-home --ingroup uwsgi uwsgi && \
+    useradd -ms /bin/bash escriptorium
+
+WORKDIR /home/escriptorium
+
+COPY --from=build /usr/local /usr/local
+COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptorium ./escriptorium
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY django-init.sh /django-init.sh
 COPY docker-entrypoint.sh /usr/local/bin/
