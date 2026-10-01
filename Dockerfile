@@ -10,7 +10,7 @@ ARG TORCHVISION_VERSION=0.22.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential libpq-dev libxml2-dev libxslt-dev zlib1g-dev \
     libffi-dev libssl-dev git curl \
-    libvips default-jdk ant && \
+    libvips && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get update && apt-get install -y --no-install-recommends nodejs && \
     rm -rf /var/lib/apt/lists/*
@@ -20,11 +20,14 @@ WORKDIR /home/escriptorium
 RUN git clone --depth 1 --branch "$ESCRIPTORIUM_VERSION" \
         https://gitlab.com/scripta/escriptorium.git
 
+# Filter optional Passim dependencies alongside TEXT_ALIGNMENT=False below.
 RUN pip install --upgrade pip --no-cache-dir && \
     pip install --no-cache-dir \
         "torch==$TORCH_VERSION" "torchvision==$TORCHVISION_VERSION" \
         --index-url "$TORCH_INDEX_URL" && \
-    pip install --no-cache-dir -r ./escriptorium/app/requirements.txt && \
+    grep -v 'passim' ./escriptorium/app/requirements.txt \
+        > /tmp/requirements.txt && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
     pip install --no-cache-dir flower gunicorn
 
 RUN cd ./escriptorium/front && \
@@ -43,6 +46,7 @@ RUN rm -rf /usr/local/lib/python3.12/site-packages/torch/include \
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
+    TEXT_ALIGNMENT=False \
     POSTGRES_DB=escriptorium \
     POSTGRES_USER=escriptorium \
     POSTGRES_PASSWORD=escriptorium \
@@ -51,7 +55,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 libxml2 libxslt1.1 zlib1g libffi8 libssl3 \
     redis postgresql postgresql-contrib \
-    libvips42 default-jre \
+    libvips42 \
     supervisor nginx && \
     rm -rf /var/lib/apt/lists/*
 
