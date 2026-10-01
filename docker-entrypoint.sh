@@ -1,3 +1,4 @@
 #!/bin/bash
 
-/usr/bin/supervisord -n
+chown escriptorium:escriptorium /home/escriptorium/escriptorium/app/media
+exec /usr/bin/supervisord -n
