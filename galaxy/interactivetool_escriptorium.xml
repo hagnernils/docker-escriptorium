@@ -1,0 +1,59 @@
+<tool id="interactive_tool_escriptorium" name="eScriptorium" tool_type="interactive" version="26.04.1+galaxy0" profile="24.2">
+    <description>segment, transcribe and train models on images and PDFs</description>
+    <requirements>
+        <container type="docker">localhost/escriptorium:26.04.1-cpu</container>
+    </requirements>
+    <entry_points>
+        <entry_point name="eScriptorium" requires_domain="True">
+            <port>80</port>
+            <url>/galaxy/login/</url>
+        </entry_point>
+    </entry_points>
+    <environment_variables>
+        <environment_variable name="GALAXY_URL">$__galaxy_url__</environment_variable>
+        <environment_variable name="GALAXY_USER_ID">$__user_id__</environment_variable>
+        <environment_variable name="GALAXY_USER_EMAIL">$__user_email__</environment_variable>
+    </environment_variables>
+    <command><![CDATA[
+#def stage($datasets, $folder)
+#for $index, $dataset in enumerate($datasets)
+#if $dataset
+#set $name = str($dataset.element_identifier).replace('/', '_').replace("'", '_')
+#if '.' not in $name
+#set $name = $name + '.' + str($dataset.ext)
+#end if
+#set $target = 'inputs/%s/%04d' % ($folder, $index)
+mkdir -p '$target' && ln -s '$dataset' '$target/$name' &&
+#end if
+#end for
+#end def
+$stage($images, 'images')
+$stage($annotations, 'annotations')
+$stage($segmentation_models, 'segmentation')
+$stage($recognition_models, 'recognition')
+exec bash '$__tool_directory__/start.sh'
+    ]]></command>
+    <inputs>
+        <param name="images" type="data" multiple="true" format="png,jpg,tiff,pdf" label="Images or PDFs"
+            help="Imported as pages in the given order. A list collection keeps its element order."/>
+        <param name="annotations" type="data" multiple="true" optional="true" format="xml,zip" label="PAGE or ALTO annotations"
+            help="XML files or zip archives, matched to pages by image file name."/>
+        <param name="segmentation_models" type="data" multiple="true" optional="true" format="mlmodel,safetensors" label="Kraken segmentation models"/>
+        <param name="recognition_models" type="data" multiple="true" optional="true" format="mlmodel,safetensors" label="Kraken recognition models"/>
+    </inputs>
+    <outputs>
+        <collection name="exports" type="list" label="eScriptorium exports">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.zip$" directory="media/users" recurse="true" format="zip"/>
+        </collection>
+        <collection name="models" type="list" label="eScriptorium models">
+            <discover_datasets pattern="(?P&lt;designation&gt;[^/]+)/(?P&lt;name&gt;[^/]+)\.(?P&lt;ext&gt;mlmodel|safetensors)$" directory="media/models" recurse="true" match_relative_path="true"/>
+        </collection>
+    </outputs>
+    <help><![CDATA[
+Opens eScriptorium with one project and document that contain the selected images and PDF pages.
+Annotations and models are imported into the same document session.
+
+Exports created in eScriptorium and all models of the session are added to the history when the tool is stopped.
+Wait for an export to finish before stopping the tool.
+    ]]></help>
+</tool>
