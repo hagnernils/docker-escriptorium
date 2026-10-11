@@ -53,6 +53,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     POSTGRES_DB=escriptorium \
     POSTGRES_USER=escriptorium \
     POSTGRES_PASSWORD=escriptorium \
+    PGSSLCERT=/tmp/postgresql.crt \
     SQL_PORT=5432
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -72,13 +73,18 @@ COPY --from=build /usr/local /usr/local
 COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptorium/app ./escriptorium/app
 COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptorium/front/dist ./escriptorium/front/dist
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY django-init.sh /django-init.sh
-COPY docker-entrypoint.sh /usr/local/bin/
 COPY nginx.conf /etc/nginx/sites-available/default
 
-RUN chmod +x /django-init.sh /usr/local/bin/docker-entrypoint.sh
+# Each container starts with its own migrated database.
+RUN set -eu; \
+    install -d -o escriptorium -g escriptorium /home/escriptorium/escriptorium/app/media; \
+    trap 'pg_ctlcluster --mode fast 15 main stop' EXIT; \
+    pg_ctlcluster 15 main start; \
+    runuser -u postgres -- psql -v ON_ERROR_STOP=1 -c "CREATE USER escriptorium WITH PASSWORD 'escriptorium';"; \
+    runuser -u postgres -- createdb -O escriptorium escriptorium; \
+    runuser -u escriptorium -- sh -c 'cd /home/escriptorium/escriptorium/app && python manage.py migrate --noinput'
 RUN find /usr/local -type d -name __pycache__ -prune -exec rm -rf '{}' +
 
 EXPOSE 80 5555
 
-CMD ["docker-entrypoint.sh"]
+CMD ["/usr/bin/supervisord", "-n"]

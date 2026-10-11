@@ -18,7 +18,7 @@ def galaxy_login(request):
     try:
         user = get_user_model().objects.filter(username=f"galaxy_{os.environ['GALAXY_USER_ID']}").first()
         documents = list(Document.objects.filter(owner=user).select_related("project")) if user else []
-    except DatabaseError:  # The database is still being migrated.
+    except DatabaseError:  # PostgreSQL is still starting.
         documents = []
     if not documents:
         return HttpResponse(STARTING_PAGE)

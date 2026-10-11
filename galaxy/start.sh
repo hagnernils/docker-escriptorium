@@ -1,8 +1,6 @@
 #!/bin/bash
-# Starts the regular eScriptorium services inside a Galaxy job and imports the
-# inputs staged by the tool wrapper under inputs/{documents,annotations,segmentation,recognition}.
-# Each inputs/documents/NNNN folder becomes one document: `name` holds its title, `names` the page names without extension,
-# and the numbered files are its pages.
+# Starts the eScriptorium services inside a Galaxy job and imports the inputs of the tool wrapper under inputs/{documents,annotations,segmentation,recognition}.
+# Each inputs/documents/NNNN folder is for one document: `name` holds its title, `names` the page names without extension, and the numbered files are its pages.
 # The job working directory holds the media folder, so Galaxy collects exports and models from it.
 set -euo pipefail
 shopt -s nullglob
@@ -20,11 +18,24 @@ ln -s "$PWD/media" "$app/media"
 
 /usr/bin/supervisord -n &
 supervisord_pid=$!
+trap 'kill -TERM "$supervisord_pid" 2>/dev/null || true; wait "$supervisord_pid" || true' EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 
-# django-init.sh creates the database and applies migrations, then exits.
-# supervisorctl exits nonzero for stopped programs, so only its output is checked.
-until [[ $(supervisorctl status django-init 2>/dev/null) =~ EXITED|FATAL ]]; do sleep 2; done
-[[ $(supervisorctl status django-init) =~ EXITED ]]
+# The database schema and static assets are prepared in the image.
+deadline=$((SECONDS + 120))
+wait_for() {
+    local service=$1
+    shift
+    until "$@"; do
+        if (( SECONDS >= deadline )); then
+            echo "Timed out waiting for $service." >&2
+            return 1
+        fi
+        sleep 1
+    done
+}
+wait_for PostgreSQL runuser -u postgres -- pg_isready -q
 
 # Create the session user, its project, one document per inputs/documents folder, and an API token.
 # Any superuser is deactivated so no admin account is reachable in this session.
@@ -53,7 +64,7 @@ with transaction.atomic():
 token=$(head -n 1 <<< "$result")
 documents=$(tail -n +2 <<< "$result")
 
-until curl -fso /dev/null http://127.0.0.1:8000/; do sleep 2; done
+wait_for HTTP curl --max-time 2 -fso /dev/null http://127.0.0.1:8000/
 # A failed upload is logged to the job stderr and the session keeps running.
 api() { curl -sS --fail-with-body -H "Authorization: Token $token" "$@" || echo "Import failed: $*" >&2; }
 base=http://127.0.0.1:8000/api
