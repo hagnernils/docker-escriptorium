@@ -15,6 +15,8 @@
         <environment_variable name="GALAXY_USER_EMAIL">$__user_email__</environment_variable>
     </environment_variables>
     <command><![CDATA[
+#import os
+#import shlex
 #def stage($datasets, $folder)
 #for $index, $dataset in enumerate($datasets)
 #if $dataset
@@ -27,33 +29,50 @@ mkdir -p '$target' && ln -s '$dataset' '$target/$name' &&
 #end if
 #end for
 #end def
-$stage($images, 'images')
+## Each document gets a folder with its name, the page names and the numbered pages.
+#set $docs = [(str($d.element_identifier), [$d]) for $d in ($images or []) if $d]
+#set $docs = $docs + [(str($r.pages.name), list($r.pages)) for $r in $documents]
+#for $doc_index, $doc in enumerate($docs)
+#set $folder = 'inputs/documents/%04d' % $doc_index
+mkdir -p '$folder' && printf %s ${shlex.quote($doc[0])} > '$folder/name' && : > '$folder/names' &&
+#for $page_index, $page in enumerate($doc[1])
+#set $page_stem = os.path.splitext(str($page.element_identifier))[0]
+#set $page_link = '%s/%04d.%s' % ($folder, $page_index, str($page.ext))
+ln -s '$page' '$page_link' && printf '%s\n' ${shlex.quote($page_stem)} >> '$folder/names' &&
+#end for
+#end for
 $stage($annotations, 'annotations')
 $stage($segmentation_models, 'segmentation')
 $stage($recognition_models, 'recognition')
 exec bash '$__tool_directory__/start.sh'
     ]]></command>
     <inputs>
-        <param name="images" type="data" multiple="true" format="png,jpg,tiff,pdf" label="Images or PDFs"
-            help="Imported as pages in the given order. A list collection keeps its element order."/>
+        <param name="images" type="data" multiple="true" optional="true" format="png,jpg,tiff,pdf" label="Images or PDFs"
+            help="Each selected file becomes one document named after the dataset."/>
+        <repeat name="documents" title="Document from collection">
+            <param name="pages" type="data_collection" collection_type="list" format="png,jpg,tiff,pdf" label="Collection of images or PDFs"
+                help="The collection becomes one document named after the collection. Pages follow the element order."/>
+        </repeat>
         <param name="annotations" type="data" multiple="true" optional="true" format="xml,zip" label="PAGE or ALTO annotations"
-            help="XML files or zip archives, matched to pages by image file name."/>
+            help="XML files or zip archives. An XML file is imported into the document that holds its image file name, zip archives into every document."/>
         <param name="segmentation_models" type="data" multiple="true" optional="true" format="mlmodel,safetensors" label="Kraken segmentation models"/>
         <param name="recognition_models" type="data" multiple="true" optional="true" format="mlmodel,safetensors" label="Kraken recognition models"/>
     </inputs>
     <outputs>
-        <collection name="exports" type="list" label="eScriptorium exports">
-            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.zip$" directory="media/users" recurse="true" format="zip"/>
-        </collection>
-        <collection name="models" type="list" label="eScriptorium models">
-            <discover_datasets pattern="(?P&lt;designation&gt;[^/]+)/(?P&lt;name&gt;[^/]+)\.(?P&lt;ext&gt;mlmodel|safetensors)$" directory="media/models" recurse="true" match_relative_path="true"/>
-        </collection>
+        <data name="exports" format="zip" hidden="true" label="eScriptorium exports">
+            <discover_datasets pattern="(?P&lt;designation&gt;.+)\.zip$" directory="media/users" recurse="true" format="zip" visible="true"/>
+        </data>
+        <data name="models" format="data" hidden="true" label="eScriptorium models">
+            <discover_datasets pattern="(?P&lt;designation&gt;[^/]+)/(?P&lt;name&gt;[^/]+)\.(?P&lt;ext&gt;mlmodel|safetensors)$" directory="media/models" recurse="true" match_relative_path="true" visible="true"/>
+        </data>
     </outputs>
     <help><![CDATA[
-Opens eScriptorium with one project and document that contain the selected images and PDF pages.
-Annotations and models are imported into the same document session.
+Opens eScriptorium with one project. Every selected image or PDF and every selected collection becomes one document.
+A collection document is named after the collection and holds its pages in element order.
+At least one image, PDF or collection is required.
+Annotations and models are imported into the session. An annotation XML file goes to the document that holds the image named in it.
 
-Exports created in eScriptorium and all models of the session are added to the history when the tool is stopped.
+Exports created in eScriptorium and all models of the session are added to the history as separate datasets when the tool is stopped.
 Wait for an export to finish before stopping the tool.
     ]]></help>
 </tool>

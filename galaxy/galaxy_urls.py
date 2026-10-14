@@ -17,13 +17,15 @@ def galaxy_login(request):
     """Galaxy's proxy already restricts this session to its owner, so the mapped user is logged in directly."""
     try:
         user = get_user_model().objects.filter(username=f"galaxy_{os.environ['GALAXY_USER_ID']}").first()
-        document = Document.objects.filter(owner=user).first() if user else None
+        documents = list(Document.objects.filter(owner=user).select_related("project")) if user else []
     except DatabaseError:  # The database is still being migrated.
-        document = None
-    if document is None:
+        documents = []
+    if not documents:
         return HttpResponse(STARTING_PAGE)
     login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-    return redirect("document-images", pk=document.pk)
+    if len(documents) == 1:
+        return redirect("document-images", pk=documents[0].pk)
+    return redirect("documents-list", slug=documents[0].project.slug)
 
 
 urlpatterns = [path("galaxy/login/", galaxy_login)] + escriptorium_urlpatterns
