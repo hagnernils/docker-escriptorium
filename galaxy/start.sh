@@ -1,6 +1,6 @@
 #!/bin/bash
-# Starts the eScriptorium services inside a Galaxy job and imports the inputs of the tool wrapper under inputs/{documents,annotations,segmentation,recognition}.
-# Each inputs/documents/NNNN folder is for one document: `name` holds its title, `names` the page names without extension, and the numbered files are its pages.
+# Starts the eScriptorium services inside a Galaxy job and imports inputs/documents.
+# Each document folder holds its title in `name`, plus numbered page and annotation folders preserving filenames.
 # The job working directory holds the media folder, so Galaxy collects exports and models from it.
 set -euo pipefail
 shopt -s nullglob
@@ -41,7 +41,8 @@ wait_for PostgreSQL runuser -u postgres -- pg_isready -q
 # Any superuser is deactivated so no admin account is reachable in this session.
 # The transaction makes all documents appear at once for the login redirect.
 # The shell prints "RESULT <token>" and one "RESULT <document pk> <folder>" line per document.
-[[ -n $(echo inputs/documents/*/) ]] || { echo "Select at least one image, PDF or collection." >&2; exit 1; }
+document_folders=(inputs/documents/*/)
+(( ${#document_folders[@]} )) || { echo "Select at least one input file or collection." >&2; exit 1; }
 # The folders and titles are passed as "folder<TAB>title" lines because the job directory may not be readable for the escriptorium user.
 titles=$(for folder in inputs/documents/*/; do printf '%s\t%s\n' "${folder%/}" "$(<"${folder}name")"; done)
 result=$(cd "$app" && runuser -u escriptorium -- env TITLES="$titles" python manage.py shell -c "
@@ -71,28 +72,36 @@ base=http://127.0.0.1:8000/api
 
 # PDF and XML imports run as Celery tasks in submission order, after the image uploads.
 while read -r document folder; do
-    for file in "$folder"/*.*; do
+    for file in "$folder"/pages/*/*; do
         case $file in
-            *.pdf) api -F mode=pdf -F "upload_file=@$file" "$base/documents/$document/import/" ;;
+            */*.pdf/*) api -F mode=pdf -F "upload_file=@$file" "$base/documents/$document/import/" ;;
             *) api -F "image=@$file" "$base/documents/$document/parts/" ;;
         esac
     done
 done <<< "$documents"
-# Zip archives go to every document. An XML file goes to the documents holding the image it names, or to every document if it names none.
-for file in inputs/annotations/*/*; do
-    image=
-    [[ $file == *.zip ]] || image=$(grep -oPm1 '(imageFilename="|<fileName>)\K[^"<]+' "$file" || true)
-    image=$(basename "${image:-.}"); image=${image%.*}
-    while read -r document folder; do
-        [[ $image == . ]] || grep -qxF -- "$image" "$folder/names" || continue
+# Annotations belong to the document selected in their input group.
+while read -r document folder; do
+    for file in "$folder"/annotations/*/*; do
         api -F mode=xml -F "upload_file=@$file" "$base/documents/$document/import/"
-    done <<< "$documents"
-done
-for job in segmentation recognition; do
-    label=$([[ $job == segmentation ]] && echo Segment || echo Recognize)
-    for file in inputs/$job/*/*; do
-        api -F "name=$(basename "$file")" -F "job=$label" -F "file=@$file" "$base/models/"
     done
+done <<< "$documents"
+for file in inputs/models/*/*/*; do
+    (cd "$app" && runuser -u escriptorium -- env MODEL_NAME="$(basename "$file")" python manage.py shell -c "
+import os, shutil, sys
+from tempfile import NamedTemporaryFile
+from django.contrib.auth import get_user_model
+from django.core.files import File
+from core.forms import ModelUploadForm
+
+user = get_user_model().objects.get(username='galaxy_' + os.environ['GALAXY_USER_ID'])
+name = os.environ['MODEL_NAME']
+with NamedTemporaryFile(suffix=os.path.splitext(name)[1]) as tmp:
+    shutil.copyfileobj(sys.stdin.buffer, tmp)
+    tmp.seek(0)
+    form = ModelUploadForm(data={'name': name}, files={'file': File(tmp, name=name)}, user=user)
+    form.instance.owner = user
+    form.save()
+" ) < "$file" || echo "Model import failed: $file" >&2
 done
 
 wait "$supervisord_pid"

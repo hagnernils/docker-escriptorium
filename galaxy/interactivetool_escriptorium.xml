@@ -1,4 +1,4 @@
-<tool id="interactive_tool_escriptorium" name="eScriptorium" tool_type="interactive" version="26.04.1+galaxy0" profile="24.2">
+<tool id="interactive_tool_escriptorium" name="eScriptorium" tool_type="interactive" version="26.04.1+galaxy1" profile="24.2">
     <description>segment, transcribe and train models on images and PDFs</description>
     <requirements>
         <container type="docker">localhost/escriptorium:26.04.1-cpu</container>
@@ -15,48 +15,36 @@
         <environment_variable name="GALAXY_USER_EMAIL">$__user_email__</environment_variable>
     </environment_variables>
     <command><![CDATA[
-#import os
 #import shlex
 #def stage($datasets, $folder)
 #for $index, $dataset in enumerate($datasets)
 #if $dataset
-#set $name = str($dataset.element_identifier).replace('/', '_').replace("'", '_')
+#set $name = str($dataset.element_identifier).replace('/', '_')
 #if '.' not in $name
 #set $name = $name + '.' + str($dataset.ext)
 #end if
-#set $target = 'inputs/%s/%04d' % ($folder, $index)
-mkdir -p '$target' && ln -s '$dataset' '$target/$name' &&
+#set $target = 'inputs/%s/%04d.%s' % ($folder, $index, str($dataset.ext))
+mkdir -p '$target' && ln -s '$dataset' ${shlex.quote($target + '/' + $name)} &&
 #end if
 #end for
 #end def
-## Each document gets a folder with its name, the page names and the numbered pages.
-#set $docs = [(str($d.element_identifier), [$d]) for $d in ($images or []) if $d]
-#set $docs = $docs + [(str($r.pages.name), list($r.pages)) for $r in $documents]
-#for $doc_index, $doc in enumerate($docs)
-#set $folder = 'inputs/documents/%04d' % $doc_index
-mkdir -p '$folder' && printf %s ${shlex.quote($doc[0])} > '$folder/name' && : > '$folder/names' &&
-#for $page_index, $page in enumerate($doc[1])
-#set $page_stem = os.path.splitext(str($page.element_identifier))[0]
-#set $page_link = '%s/%04d.%s' % ($folder, $page_index, str($page.ext))
-ln -s '$page' '$page_link' && printf '%s\n' ${shlex.quote($page_stem)} >> '$folder/names' &&
+#for $doc_index, $doc in enumerate($documents)
+#if $doc.files
+#set $folder = 'documents/%04d' % $doc_index
+#set $title = 'Galaxy imports' if $doc_index == 0 else 'Galaxy imports %d' % ($doc_index + 1)
+mkdir -p 'inputs/$folder' && printf %s ${shlex.quote($title)} > 'inputs/$folder/name' &&
+$stage([$d for $d in $doc.files if $d and str($d.ext) in ('png', 'jpg', 'tiff', 'pdf')], $folder + '/pages')
+$stage([$d for $d in $doc.files if $d and str($d.ext) in ('xml', 'zip')], $folder + '/annotations')
+$stage([$d for $d in $doc.files if $d and str($d.ext) in ('mlmodel', 'safetensors')], 'models/%04d' % $doc_index)
+#end if
 #end for
-#end for
-$stage($annotations, 'annotations')
-$stage($segmentation_models, 'segmentation')
-$stage($recognition_models, 'recognition')
 exec bash '$__tool_directory__/start.sh'
     ]]></command>
     <inputs>
-        <param name="images" type="data" multiple="true" optional="true" format="png,jpg,tiff,pdf" label="Images or PDFs"
-            help="Each selected file becomes one document named after the dataset."/>
-        <repeat name="documents" title="Document from collection">
-            <param name="pages" type="data_collection" collection_type="list" format="png,jpg,tiff,pdf" label="Collection of images or PDFs"
-                help="The collection becomes one document named after the collection. Pages follow the element order."/>
+        <repeat name="documents" title="Document" min="1" default="1">
+            <param name="files" type="data" multiple="true" optional="true" format="png,jpg,tiff,pdf,xml,zip,mlmodel,safetensors" label="Inputs"
+                help="Select files or a collection for one document. Add a document to keep another group separate. Model type is detected automatically."/>
         </repeat>
-        <param name="annotations" type="data" multiple="true" optional="true" format="xml,zip" label="PAGE or ALTO annotations"
-            help="XML files or zip archives. An XML file is imported into the document that holds its image file name, zip archives into every document."/>
-        <param name="segmentation_models" type="data" multiple="true" optional="true" format="mlmodel,safetensors" label="Kraken segmentation models"/>
-        <param name="recognition_models" type="data" multiple="true" optional="true" format="mlmodel,safetensors" label="Kraken recognition models"/>
     </inputs>
     <outputs>
         <data name="exports" format="zip" hidden="true" label="eScriptorium exports">
@@ -67,10 +55,11 @@ exec bash '$__tool_directory__/start.sh'
         </data>
     </outputs>
     <help><![CDATA[
-Opens eScriptorium with one project. Every selected image or PDF and every selected collection becomes one document.
-A collection document is named after the collection and holds its pages in element order.
-At least one image, PDF or collection is required.
-Annotations and models are imported into the session. An annotation XML file goes to the document that holds the image named in it.
+Opens eScriptorium with one project. Each input group becomes one document:
+Galaxy imports, Galaxy imports 2, and so on. Select files together or supply a collection
+to import its elements in order into one document. Add a group for each separate document.
+Select at least one file. Images and PDFs become pages; PAGE/ALTO XML and ZIP annotations
+are imported into the same document after its pages. Models are imported into the session.
 
 Exports created in eScriptorium and all models of the session are added to the history as separate datasets when the tool is stopped.
 Wait for an export to finish before stopping the tool.
