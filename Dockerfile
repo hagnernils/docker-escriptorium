@@ -27,8 +27,7 @@ RUN pip install --upgrade pip --no-cache-dir && \
         --index-url "$TORCH_INDEX_URL" && \
     grep -v 'passim' ./escriptorium/app/requirements.txt \
         > /tmp/requirements.txt && \
-    pip install --no-cache-dir -r /tmp/requirements.txt && \
-    pip install --no-cache-dir flower gunicorn
+    pip install --no-cache-dir -r /tmp/requirements.txt flower
 
 RUN cd ./escriptorium/front && \
     npm ci && \
@@ -63,9 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor nginx curl && \
     rm -rf /var/lib/apt/lists/*
 
-RUN addgroup --system uwsgi && \
-    adduser --system --no-create-home --ingroup uwsgi uwsgi && \
-    useradd -ms /bin/bash escriptorium
+RUN useradd -ms /bin/bash escriptorium
 
 WORKDIR /home/escriptorium
 
