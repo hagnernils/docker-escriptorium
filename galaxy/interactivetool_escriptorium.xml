@@ -14,37 +14,18 @@
         <environment_variable name="GALAXY_USER_ID">$__user_id__</environment_variable>
         <environment_variable name="GALAXY_USER_EMAIL">$__user_email__</environment_variable>
     </environment_variables>
-    <command><![CDATA[
-#import shlex
-#def stage($datasets, $folder)
-#for $index, $dataset in enumerate($datasets)
-#if $dataset
-#set $name = str($dataset.element_identifier).replace('/', '_')
-#if '.' not in $name
-#set $name = $name + '.' + str($dataset.ext)
-#end if
-#set $target = 'inputs/%s/%04d.%s' % ($folder, $index, str($dataset.ext))
-mkdir -p '$target' && ln -s '$dataset' ${shlex.quote($target + '/' + $name)} &&
-#end if
-#end for
-#end def
-#for $doc_index, $doc in enumerate($documents)
-#if $doc.files
-#set $folder = 'documents/%04d' % $doc_index
-#set $title = 'Galaxy imports' if $doc_index == 0 else 'Galaxy imports %d' % ($doc_index + 1)
-mkdir -p 'inputs/$folder' && printf %s ${shlex.quote($title)} > 'inputs/$folder/name' &&
-$stage([$d for $d in $doc.files if $d and str($d.ext) in ('png', 'jpg', 'tiff', 'pdf')], $folder + '/pages')
-$stage([$d for $d in $doc.files if $d and str($d.ext) in ('xml', 'zip')], $folder + '/annotations')
-$stage([$d for $d in $doc.files if $d and str($d.ext) in ('mlmodel', 'safetensors')], 'models/%04d' % $doc_index)
-#end if
-#end for
-exec /home/escriptorium/galaxy/start.sh
-    ]]></command>
+    <configfiles>
+        <inputs name="inputs_json" data_style="staging_path_and_source_path"/>
+    </configfiles>
+    <command><![CDATA[exec /home/escriptorium/galaxy/start.sh '$inputs_json']]></command>
     <inputs>
         <repeat name="documents" title="Document" min="1" default="1">
-            <param name="files" type="data" multiple="true" optional="true" format="png,jpg,tiff,pdf,xml,zip,mlmodel,safetensors" label="Inputs"
-                help="Select files or a collection for one document. Add a document to keep another group separate. Model type is detected automatically."/>
+            <param name="title" type="text" value="" label="Document name" help="Defaults to Document 1, Document 2, and so on."/>
+            <param name="pages" type="data" multiple="true" format="png,jpg,tiff,pdf" label="Pages"
+                help="Images and PDFs are added in the selected or collection order; each PDF adds all its pages at its position."/>
         </repeat>
+        <param name="input_models" type="data" multiple="true" optional="true" format="mlmodel,safetensors" label="Models"
+            help="Segmentation and recognition models. The model type is detected automatically."/>
     </inputs>
     <outputs>
         <data name="exports" format="zip" hidden="true" label="eScriptorium exports">
@@ -55,13 +36,9 @@ exec /home/escriptorium/galaxy/start.sh
         </data>
     </outputs>
     <help><![CDATA[
-Opens eScriptorium with one project. Each input group becomes one document:
-Galaxy imports, Galaxy imports 2, and so on. Select files together or supply a collection
-to import its elements in order into one document. Add a group for each separate document.
-Select at least one file. Images and PDFs become pages; PAGE/ALTO XML and ZIP annotations
-are imported into the same document after its pages. Models are imported into the session.
-
-Exports created in eScriptorium and all models of the session are added to the history as separate datasets when the tool is stopped.
-Wait for an export to finish before stopping the tool.
+Opens eScriptorium with a project named Galaxy that holds one document per **Document** input. Supported inputs are:
+- **Pages**: images and PDFs in the order selected or in collection order
+- **Models**: segmentation and recognition models, uploaded automatically
+Exports created in eScriptorium and all new models of the session are added to the history as separate datasets when the tool is stopped, so wait for an export to finish before stopping the tool.
     ]]></help>
 </tool>
