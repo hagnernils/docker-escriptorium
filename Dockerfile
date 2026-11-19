@@ -85,6 +85,9 @@ RUN set -eu; \
     runuser -u postgres -- createdb -O escriptorium escriptorium; \
     runuser -u escriptorium -- sh -c 'cd /home/escriptorium/escriptorium/app && python manage.py migrate --noinput'
 
+# copy  the startup script and files for the galaxy interactive tool to the image
+COPY galaxy ./galaxy
+
 EXPOSE 80 5555
 
 CMD ["/usr/bin/supervisord", "-n"]

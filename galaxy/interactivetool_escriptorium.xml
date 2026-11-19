@@ -38,7 +38,7 @@ $stage([$d for $d in $doc.files if $d and str($d.ext) in ('xml', 'zip')], $folde
 $stage([$d for $d in $doc.files if $d and str($d.ext) in ('mlmodel', 'safetensors')], 'models/%04d' % $doc_index)
 #end if
 #end for
-exec bash '$__tool_directory__/start.sh'
+exec /home/escriptorium/galaxy/start.sh
     ]]></command>
     <inputs>
         <repeat name="documents" title="Document" min="1" default="1">
