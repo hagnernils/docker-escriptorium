@@ -21,13 +21,14 @@ RUN git clone --depth 1 --branch "$ESCRIPTORIUM_VERSION" \
         https://gitlab.com/scripta/escriptorium.git
 
 # Leave out the optional Passim text alignment (so we can leave out java), the feature is disabled by default so should not matter much
+# kombu 5.7 requires redis-py 6.1, but eScriptorium pins redis-py 4.4, so we require below 5.7
 RUN pip install --upgrade pip --no-cache-dir && \
     pip install --no-cache-dir \
         "torch==$TORCH_VERSION" "torchvision==$TORCHVISION_VERSION" \
         --index-url "$TORCH_INDEX_URL" && \
     grep -v 'passim' ./escriptorium/app/requirements.txt \
         > /tmp/requirements.txt && \
-    pip install --no-cache-dir -r /tmp/requirements.txt flower
+    pip install --no-cache-dir -r /tmp/requirements.txt flower "kombu<5.7"
 
 RUN cd ./escriptorium/front && \
     npm ci && \
