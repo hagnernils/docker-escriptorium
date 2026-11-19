@@ -49,7 +49,11 @@ RUN find ./escriptorium/app -type d -name tests -prune -exec rm -rf '{}' + && \
 FROM python:3.12-slim-bookworm
 
 # libpq looks for a client certificate in $HOME, which Galaxy sets to the job directory.
+# OpenBLAS, libvips and nginx start one thread or process per host CPU (core).
+# This can run in the pid limit on large hosts, so we use 1 thread for now
 ENV PYTHONDONTWRITEBYTECODE=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    VIPS_CONCURRENCY=1 \
     POSTGRES_USER=escriptorium \
     POSTGRES_PASSWORD=escriptorium \
     PGSSLCERT=/tmp/postgresql.crt
@@ -70,6 +74,7 @@ COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptor
 COPY --from=build --chown=escriptorium:escriptorium /home/escriptorium/escriptorium/front/dist ./escriptorium/front/dist
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY nginx.conf /etc/nginx/sites-available/default
+RUN sed -i 's/^worker_processes auto;/worker_processes 1;/' /etc/nginx/nginx.conf
 
 # migrate the database for faster startup
 RUN set -eu; \

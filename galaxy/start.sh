@@ -9,7 +9,9 @@ tool_dir=$(dirname "$(readlink -f "$0")")
 app=/home/escriptorium/escriptorium/app
 export PYTHONPATH=$tool_dir DJANGO_SETTINGS_MODULE=galaxy_settings
 SECRET_KEY=$(python -c 'import secrets; print(secrets.token_urlsafe(50))')
-export SECRET_KEY
+# size thread pools to the CPUs Galaxy gives to the container
+export GALAXY_SLOTS=${GALAXY_SLOTS:-1}
+export SECRET_KEY OMP_NUM_THREADS=$GALAXY_SLOTS
 
 mkdir -p media
 chown escriptorium:escriptorium media
