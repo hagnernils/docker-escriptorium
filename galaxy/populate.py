@@ -2,10 +2,12 @@
 Usage: populate.py <inputs.json>
 """
 import json
+import multiprocessing
 import os
 import re
 import subprocess
 import sys
+from concurrent.futures import ProcessPoolExecutor
 
 import django
 import pyvips
@@ -16,11 +18,11 @@ from django.conf import settings  # noqa: E402
 from django.contrib.auth import get_user_model  # noqa: E402
 from django.core.files import File  # noqa: E402
 from django.core.files.base import ContentFile  # noqa: E402
-from django.db import transaction  # noqa: E402
+from django.db import connections, transaction  # noqa: E402
 from easy_thumbnails.files import get_thumbnailer  # noqa: E402
 
 from core.forms import ModelUploadForm  # noqa: E402
-from core.models import Document, DocumentPart, Project  # noqa: E402
+from core.models import CascadeUpdate, Document, DocumentPart, Project  # noqa: E402
 
 
 def filename(dataset):
@@ -67,13 +69,15 @@ def create_pages(documents, inputs):
                                    for page in range(int(count[1]) if count else 1)]
             else:
                 document_pages.append((name, path, name, None))
-        pages += [(label, (document, order, path, name, page))
-                  for order, (label, path, name, page) in enumerate(document_pages)]
-    for label, arguments in pages:
-        try:
-            create_page(*arguments)
-        except Exception as error:
-            print(f"Import failed: {label}: {error!r}", file=sys.stderr)
+        # order pages so we can save them in parallel and have them appear in the correct order
+        pages += [(label, (document, order, path, name, page)) for order, (label, path, name, page) in enumerate(document_pages)]
+    connections.close_all()  # each worker opens its own db connection
+    # The bypass keeps each page (part) save from also updating a document and project
+    with CascadeUpdate.bypass(), ProcessPoolExecutor(int(os.environ["GALAXY_SLOTS"]), mp_context=multiprocessing.get_context("fork")) as pool:
+        futures = [(label, pool.submit(create_page, *arguments)) for label, arguments in pages]
+    for label, future in futures:
+        if future.exception():
+            print(f"Import failed: {label}: {future.exception()!r}", file=sys.stderr)
 
 
 def import_models(user, models):
@@ -92,14 +96,17 @@ def import_models(user, models):
             print(f"Model import failed: {name}: {error!r}", file=sys.stderr)
 
 
-def main(inputs_path):
+# Use one transaction in the db to create the user, a project, and documents.
+# Then add the image data from the inputs and models from model inputs
+if __name__ == "__main__":
+    inputs_path = sys.argv[1]
     with open(inputs_path) as inputs_file:
         inputs = json.load(inputs_file)
 
     User = get_user_model()
-    # No admin account is reachable in this session.
+    # We disable the admin account for escriptorium that is created by default with e.g DJANGO_SU_NAME
+    # as we want only one normal user (also for security)
     User.objects.filter(is_superuser=True).update(is_active=False, is_staff=False, is_superuser=False)
-    # The transaction makes all documents appear at once for the login redirect.
     with transaction.atomic():
         user = User.objects.create_user(f"galaxy_{os.environ['GALAXY_USER_ID']}", os.environ["GALAXY_USER_EMAIL"])
         project = Project.objects.create(name="Galaxy", owner=user)
@@ -108,7 +115,3 @@ def main(inputs_path):
                      for index, block in enumerate(inputs["documents"])]
     create_pages(documents, inputs["documents"])
     import_models(user, inputs["input_models"])
-
-
-if __name__ == "__main__":
-    main(sys.argv[1])
