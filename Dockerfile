@@ -61,7 +61,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 libxml2 libxslt1.1 zlib1g libffi8 libssl3 \
     redis postgresql postgresql-contrib \
-    libvips42 \
+    libvips42 poppler-utils \
     supervisor nginx curl && \
     rm -rf /var/lib/apt/lists/*
 
