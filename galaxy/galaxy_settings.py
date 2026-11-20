@@ -13,3 +13,6 @@ ROOT_URLCONF = "galaxy_urls"
 galaxy_url = urlsplit(os.environ["GALAXY_URL"])
 CSRF_TRUSTED_ORIGINS = [f"{galaxy_url.scheme}://*.{galaxy_url.netloc}"]
 SESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = galaxy_url.scheme == "https"
+
+# Disable asking for cookies as the container shuts down anyway and we would ask with each tool run
+ENABLE_COOKIE_CONSENT = False
